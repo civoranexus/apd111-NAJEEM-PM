@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,134 +21,161 @@ class _HomePageState extends State<HomePage> {
   final AIPanicService _aiService = AIPanicService();
   bool aiEnabled = false;
 
+  Timer? _countdownTimer;
+  int remainingSeconds = 0;
+  bool timerRunning = false;
+
   @override
   void initState() {
     super.initState();
     _loadAISetting();
+    _restoreSafetyTimer();
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _aiService.stopListening();
     super.dispose();
   }
+
+  // ---------------- AI ----------------
   Future<void> _loadAISetting() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final doc = await FirebaseFirestore.instance
-        .collection("users")
-        .doc(user.uid)
-        .get();
+    final doc =
+        await FirebaseFirestore.instance.collection("users").doc(user.uid).get();
 
     aiEnabled = doc.data()?["aiPanicEnabled"] == true;
 
     if (aiEnabled) {
-      _aiService.startListening(
-        onPanicDetected: () {
-          triggerSOS();
-        },
-      );
+      _aiService.startListening(onPanicDetected: triggerSOS);
     }
   }
+
+  // ---------------- SAFETY TIMER ----------------
+  Future<void> startSafetyTimer(int seconds) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await FirebaseFirestore.instance.collection("users").doc(user.uid).update({
+      "safeTimer": {
+        "enabled": true,
+        "startTime": Timestamp.now(),
+        "durationSeconds": seconds,
+      }
+    });
+
+    remainingSeconds = seconds;
+    timerRunning = true;
+    _startLocalCountdown();
+    setState(() {});
+  }
+
+  Future<void> stopSafetyTimer() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await FirebaseFirestore.instance
+        .collection("users")
+        .doc(user.uid)
+        .update({"safeTimer.enabled": false});
+
+    _countdownTimer?.cancel();
+    remainingSeconds = 0;
+    timerRunning = false;
+    setState(() {});
+  }
+
+  Future<void> _restoreSafetyTimer() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final doc =
+        await FirebaseFirestore.instance.collection("users").doc(user.uid).get();
+
+    final data = doc.data();
+    if (data == null || data["safeTimer"] == null) return;
+
+    final timerData = data["safeTimer"];
+    if (timerData["enabled"] != true) return;
+
+    final startTime = timerData["startTime"].toDate();
+    final duration = timerData["durationSeconds"];
+
+    final elapsed =
+        DateTime.now().difference(startTime).inSeconds;
+    final remaining = duration - elapsed;
+
+    if (remaining <= 0) {
+      triggerSOS();
+    } else {
+      remainingSeconds = remaining;
+      timerRunning = true;
+      _startLocalCountdown();
+      setState(() {});
+    }
+  }
+
+  void _startLocalCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer =
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (remainingSeconds <= 0) {
+        timer.cancel();
+        triggerSOS();
+      } else {
+        setState(() => remainingSeconds--);
+      }
+    });
+  }
+
+  // ---------------- LOCATION ----------------
   Future<Position> _getLocation() async {
     LocationPermission permission = await Geolocator.checkPermission();
-
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception("Location permission permanently denied");
-    }
-
     return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+        desiredAccuracy: LocationAccuracy.high);
   }
+
+  // ---------------- SOS ----------------
   Future<void> triggerSOS() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection("users")
-          .doc(user.uid)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance.collection("users").doc(user.uid).get();
 
-      final data = userDoc.data() as Map<String, dynamic>?;
+      final contacts = doc["emergencyContacts"];
+      final contact =
+          contactIndex == 0 ? contacts["primary"] : contacts["secondary"];
 
-      if (data == null || data["emergencyContacts"] == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Emergency contacts not found"),
-          ),
-        );
-        return;
-      }
-
-      final Map<String, dynamic> contacts =
-          Map<String, dynamic>.from(data["emergencyContacts"]);
-
-      final Map<String, dynamic> contact =
-          Map<String, dynamic>.from(
-            contactIndex == 0 ? contacts["primary"] : contacts["secondary"],
-          );
-
-      final position = await _getLocation();
+      final pos = await _getLocation();
 
       final message =
-          "🚨 EMERGENCY ALERT 🚨\n"
-          "I need help immediately.\n"
-          "Location: https://maps.google.com/?q=${position.latitude},${position.longitude}";
+          "🚨 EMERGENCY ALERT 🚨\nLocation:\nhttps://maps.google.com/?q=${pos.latitude},${pos.longitude}";
 
-      
       await FirebaseFirestore.instance.collection("emergencies").add({
         "userId": user.uid,
-        "contactUsed": contactIndex == 0 ? "primary" : "secondary",
-        "location": {
-          "lat": position.latitude,
-          "lng": position.longitude,
-        },
         "timestamp": Timestamp.now(),
-        "triggeredBy": aiEnabled ? "AI_VOICE" : "SOS_BUTTON",
       });
 
-      
-      final smsUri = Uri.parse(
-        "sms:${contact["phone"]}?body=${Uri.encodeComponent(message)}",
-      );
-      if (await canLaunchUrl(smsUri)) {
-        await launchUrl(smsUri);
-      }
-
-      
-      final callUri = Uri.parse("tel:${contact["phone"]}");
-      if (await canLaunchUrl(callUri)) {
-        await launchUrl(callUri);
-      }
-
-      setState(() {
-        contactIndex = (contactIndex + 1) % 2;
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "SOS sent to ${contactIndex == 1 ? "Primary" : "Secondary"} contact",
-          ),
-        ),
-      );
-    } catch (e) {
-      debugPrint("SOS ERROR: $e");
+      await launchUrl(Uri.parse(
+          "sms:${contact["phone"]}?body=${Uri.encodeComponent(message)}"));
+      await launchUrl(Uri.parse("tel:${contact["phone"]}"));
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Failed to trigger SOS")),
       );
     }
   }
+
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -168,33 +196,66 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: Center(
-        child: GestureDetector(
-          onTap: () => triggerSOS(),
-          child: Container(
-            width: 180,
-            height: 180,
-            decoration: BoxDecoration(
-              color: Colors.red,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
-                  blurRadius: 30,
-                  spreadRadius: 10,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (timerRunning)
+              Text(
+                "Remaining Time: ${remainingSeconds ~/ 60}:${(remainingSeconds % 60).toString().padLeft(2, '0')}",
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+
+            const SizedBox(height: 20),
+
+            // 🔴 SOS BUTTON (PERFECTLY CENTERED)
+            GestureDetector(
+              onTap: triggerSOS,
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withOpacity(0.5),
+                      blurRadius: 30,
+                      spreadRadius: 10,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                "SOS",
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                child: const Center(
+                  child: Text(
+                    "SOS",
+                    style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white),
+                  ),
                 ),
               ),
             ),
-          ),
+
+            const SizedBox(height: 30),
+
+            // 🔹 TIMER CONTROLS
+            if (!timerRunning)
+              ElevatedButton.icon(
+                onPressed: () => startSafetyTimer(600),
+                icon: const Icon(Icons.timer),
+                label: const Text("Start 10-Minute Safety Timer"),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: stopSafetyTimer,
+                icon: const Icon(Icons.verified),
+                label: const Text("I’m Safe (Stop Timer)"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                ),
+              ),
+          ],
         ),
       ),
     );
