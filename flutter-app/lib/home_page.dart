@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'settings_page.dart';
+import 'profile_page.dart';
 import 'ai_panic_service.dart';
 
 class HomePage extends StatefulWidget {
@@ -39,7 +40,6 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // ---------------- AI ----------------
   Future<void> _loadAISetting() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -54,7 +54,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ---------------- SAFETY TIMER ----------------
   Future<void> startSafetyTimer(int seconds) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -104,8 +103,7 @@ class _HomePageState extends State<HomePage> {
     final startTime = timerData["startTime"].toDate();
     final duration = timerData["durationSeconds"];
 
-    final elapsed =
-        DateTime.now().difference(startTime).inSeconds;
+    final elapsed = DateTime.now().difference(startTime).inSeconds;
     final remaining = duration - elapsed;
 
     if (remaining <= 0) {
@@ -131,7 +129,6 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // ---------------- LOCATION ----------------
   Future<Position> _getLocation() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -141,7 +138,6 @@ class _HomePageState extends State<HomePage> {
         desiredAccuracy: LocationAccuracy.high);
   }
 
-  // ---------------- SOS ----------------
   Future<void> triggerSOS() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -175,26 +171,40 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-        title: const Text("Emergency"),
-        automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
-              );
-            },
-          ),
-        ],
-      ),
+  title: const Text("Emergency"),
+  automaticallyImplyLeading: false,
+
+  actions: [
+    Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.person),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProfilePage()),
+            );
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsPage()),
+            );
+          },
+        ),
+      ],
+    ),
+  ],
+),
+
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -205,10 +215,7 @@ class _HomePageState extends State<HomePage> {
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
-
             const SizedBox(height: 20),
-
-            // 🔴 SOS BUTTON (PERFECTLY CENTERED)
             GestureDetector(
               onTap: triggerSOS,
               child: Container(
@@ -236,10 +243,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 30),
-
-            // 🔹 TIMER CONTROLS
             if (!timerRunning)
               ElevatedButton.icon(
                 onPressed: () => startSafetyTimer(600),
@@ -251,9 +255,8 @@ class _HomePageState extends State<HomePage> {
                 onPressed: stopSafetyTimer,
                 icon: const Icon(Icons.verified),
                 label: const Text("I’m Safe (Stop Timer)"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                ),
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: Colors.green),
               ),
           ],
         ),
