@@ -171,40 +171,73 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // 🔽 NEW: Timer selection (logic only, UI unchanged)
+  void _showTimerOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text("1 Minute"),
+              onTap: () {
+                Navigator.pop(context);
+                startSafetyTimer(60);
+              },
+            ),
+            ListTile(
+              title: const Text("5 Minutes"),
+              onTap: () {
+                Navigator.pop(context);
+                startSafetyTimer(300);
+              },
+            ),
+            ListTile(
+              title: const Text("10 Minutes"),
+              onTap: () {
+                Navigator.pop(context);
+                startSafetyTimer(600);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
-  title: const Text("Emergency"),
-  automaticallyImplyLeading: false,
-
-  actions: [
-    Row(
-      children: [
-        IconButton(
-          icon: const Icon(Icons.person),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProfilePage()),
-            );
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.settings),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsPage()),
-            );
-          },
-        ),
-      ],
-    ),
-  ],
-),
-
+        title: const Text("Emergency"),
+        automaticallyImplyLeading: false,
+        actions: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.person),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProfilePage()),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsPage()),
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -212,8 +245,8 @@ class _HomePageState extends State<HomePage> {
             if (timerRunning)
               Text(
                 "Remaining Time: ${remainingSeconds ~/ 60}:${(remainingSeconds % 60).toString().padLeft(2, '0')}",
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w600),
               ),
             const SizedBox(height: 20),
             GestureDetector(
@@ -246,7 +279,7 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 30),
             if (!timerRunning)
               ElevatedButton.icon(
-                onPressed: () => startSafetyTimer(600),
+                onPressed: _showTimerOptions, // 👈 changed only here
                 icon: const Icon(Icons.timer),
                 label: const Text("Start 10-Minute Safety Timer"),
               )
